@@ -45,7 +45,10 @@ class LinearModule(object):
         #######################
         # PUT YOUR CODE HERE  #
         #######################
-
+        self.params = {'weight': None, 'bias': None}
+        self.grads = {'weight': None, 'bias': None}
+        self.params['weight'] = np.random.normal(loc=0, size=(out_features, in_features)) * np.sqrt(2 / in_features)
+        self.params['bias'] = np.zeros(shape=out_features)
         #######################
         # END OF YOUR CODE    #
         #######################
@@ -68,7 +71,8 @@ class LinearModule(object):
         #######################
         # PUT YOUR CODE HERE  #
         #######################
-
+        out = x @ self.params['weight'].T + self.params['bias'][None, :]
+        self.x = x
         #######################
         # END OF YOUR CODE    #
         #######################
@@ -92,7 +96,9 @@ class LinearModule(object):
         #######################
         # PUT YOUR CODE HERE  #
         #######################
-
+        dx = dout @ self.params['weight']
+        self.grads['weight'] = dout.T @ self.x
+        self.grads['bias'] = np.sum(dout, axis=0)
         #######################
         # END OF YOUR CODE    #
         #######################
@@ -134,11 +140,12 @@ class ReLUModule(object):
         
         Hint: You can store intermediate variables inside the object. They can be used in backward pass computation.
         """
-        
+
         #######################
         # PUT YOUR CODE HERE  #
         #######################
-
+        out = (x > 0) * x
+        self.x = out
         #######################
         # END OF YOUR CODE    #
         #######################
@@ -160,7 +167,7 @@ class ReLUModule(object):
         #######################
         # PUT YOUR CODE HERE  #
         #######################
-
+        dx = dout * (self.x > 0)
         #######################
         # END OF YOUR CODE    #
         #######################
@@ -206,7 +213,10 @@ class SoftMaxModule(object):
         #######################
         # PUT YOUR CODE HERE  #
         #######################
-
+        m = x.max(axis=1, keepdims=True)
+        x_exp = np.exp(x - m)
+        out = x_exp / x_exp.sum(axis=1, keepdims=True)
+        self.x = out
         #######################
         # END OF YOUR CODE    #
         #######################
@@ -228,7 +238,10 @@ class SoftMaxModule(object):
         #######################
         # PUT YOUR CODE HERE  #
         #######################
-
+        S, C = self.x.shape[0:2]
+        V = np.vsplit(self.x, S) * np.eye(C)
+        V -= self.x[:, :, None] * self.x[:, None, :]
+        dx = (dout[:, None, :] @ V).reshape(S, C)
         #######################
         # END OF YOUR CODE    #
         #######################
@@ -246,7 +259,6 @@ class SoftMaxModule(object):
         #######################
         # PUT YOUR CODE HERE  #
         #######################
-        pass
         #######################
         # END OF YOUR CODE    #
         #######################
@@ -273,7 +285,10 @@ class CrossEntropyModule(object):
         #######################
         # PUT YOUR CODE HERE  #
         #######################
-
+        T = np.zeros((y.shape[0], x.shape[1]))
+        T[np.arange(y.shape[0]), y] = 1
+        out = -T * np.log(np.clip(x, a_min=1e-25, a_max=None))
+        out = np.mean(np.sum(out, axis=1))
         #######################
         # END OF YOUR CODE    #
         #######################
@@ -296,7 +311,10 @@ class CrossEntropyModule(object):
         #######################
         # PUT YOUR CODE HERE  #
         #######################
-
+        T = np.zeros((y.shape[0], x.shape[1]))
+        T[np.arange(y.shape[0]), y] = 1.0
+        batch_size = x.shape[0]
+        dx = -T / np.clip(x, a_min=1e-25, a_max=None) / batch_size
         #######################
         # END OF YOUR CODE    #
         #######################

@@ -53,7 +53,8 @@ def accuracy(predictions, targets):
     #######################
     # PUT YOUR CODE HERE  #
     #######################
-
+    preds = predictions.argmax(1)
+    accuracy = (preds == targets).sum() / preds.shape[0]
     #######################
     # END OF YOUR CODE    #
     #######################
@@ -61,7 +62,7 @@ def accuracy(predictions, targets):
     return accuracy
 
 
-def evaluate_model(model, data_loader):
+def evaluate_model(model, loader):
     """
     Performs the evaluation of the MLP model on a given dataset.
 
@@ -74,19 +75,20 @@ def evaluate_model(model, data_loader):
     TODO:
     Implement evaluation of the MLP model on a given dataset.
 
-    Hint: make sure to return the average accuracy of the whole dataset, 
+    Hint: make sure to return the average accuracy of the whole dataset,
           independent of batch sizes (not all batches might be the same size).
     """
 
-    #######################
-    # PUT YOUR CODE HERE  #
-    #######################
-
-    #######################
-    # END OF YOUR CODE    #
-    #######################
-
-    return avg_accuracy
+    acc = 0
+    cifar10_iter = iter(loader)
+    N = len(loader.dataset)
+    while data := next(cifar10_iter, None):
+        images, labels = data
+        input_data = images.reshape(
+            (images.shape[0], -1))
+        outputs = model.forward(input_data)
+        acc += accuracy(outputs, labels) * (len(labels) / N)
+    return acc
 
 
 def train(hidden_dims, lr, batch_size, epochs, seed, data_dir):
@@ -125,39 +127,71 @@ def train(hidden_dims, lr, batch_size, epochs, seed, data_dir):
     np.random.seed(seed)
     torch.manual_seed(seed)
 
-    ## Loading the dataset
-    cifar10 = cifar10_utils.get_cifar10(data_dir)
-    cifar10_loader = cifar10_utils.get_dataloader(cifar10, batch_size=batch_size,
-                                                  return_numpy=True)
-
     #######################
     # PUT YOUR CODE HERE  #
     #######################
 
-    # TODO: Initialize model and loss module
-    model = ...
-    loss_module = ...
-    # TODO: Training loop including validation
-    val_accuracies = ...
-    # TODO: Test best model
-    test_accuracy = ...
-    # TODO: Add any information you might want to save for plotting
-    logging_info = ...
-    #######################
-    # END OF YOUR CODE    #
-    #######################
+    if hidden_dims:
+        dnn_hidden_units = [int(hidden_dims)
+                            for hidden_dims in hidden_dims]
+    else:
+        dnn_hidden_units = []
 
+    cifar10 = cifar10_utils.get_cifar10(
+        data_dir=data_dir)
+    cifar10_loader = cifar10_utils.get_dataloader(cifar10, batch_size=batch_size,
+                                                  return_numpy=True)
+    n_classes = 10
+    n_inputs = 3 * 32 * 32
+
+    model = MLP(n_inputs, dnn_hidden_units, n_classes)
+    best_model = None
+    loss_module = CrossEntropyModule()
+
+    val_accuracies = []
+    train_accuracies = []
+    train_losses = []
+    N = len(cifar10_loader['train'].dataset)
+    for step in range(epochs):
+        t_accuracy = 0
+        t_loss = 0
+        cifar10_train_iter = iter(cifar10_loader['train'])
+        while data := next(cifar10_train_iter, None):
+            images, labels = data
+            input_data = images.reshape((batch_size, -1))
+            outputs = model.forward(input_data)
+            t_loss += loss_module.forward(outputs, labels) * (len(labels) / N)
+            t_accuracy += accuracy(outputs, labels) * (len(labels) / N)
+            model.backward(loss_module.backward(outputs, labels))
+            for layer in model.layers:
+                if hasattr(layer, 'params'):
+                    weight_grad = layer.grads['weight']
+                    bias_grad = layer.grads['bias']
+                    layer.params['weight'] -= lr * weight_grad
+                    layer.params['bias'] -= lr * bias_grad
+        acc = evaluate_model(model, cifar10_loader['validation'])
+        val_accuracies.append(acc)
+        train_accuracies.append(t_accuracy)
+        train_losses.append(t_loss)
+        if acc == max(val_accuracies): best_model = deepcopy(model)
+
+    test_accuracy = evaluate_model(best_model, cifar10_loader['test'])
+    np.save('mlp_train_accuracies', train_accuracies)
+    np.save('mlp_train_losses', train_losses)
+    np.save('mlp_validation_accuracy', val_accuracies)
+    logging_dict = {'train_loss': train_losses, 'train_accuracy': train_accuracies, 'best_model': best_model}
+    print(test_accuracy)
     return model, val_accuracies, test_accuracy, logging_dict
 
 
 if __name__ == '__main__':
     # Command line arguments
     parser = argparse.ArgumentParser()
-    
+
     # Model hyperparameters
     parser.add_argument('--hidden_dims', default=[128], type=int, nargs='+',
                         help='Hidden dimensionalities to use inside the network. To specify multiple, use " " to separate them. Example: "256 128"')
-    
+
     # Optimizer hyperparameters
     parser.add_argument('--lr', default=0.1, type=float,
                         help='Learning rate to use')
@@ -177,4 +211,3 @@ if __name__ == '__main__':
 
     train(**kwargs)
     # Feel free to add any additional functions, such as plotting of the loss curve here
-    

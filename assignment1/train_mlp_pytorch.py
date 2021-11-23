@@ -34,7 +34,7 @@ import torch.nn as nn
 import torch.optim as optim
 
 
-def accuracy(predictions, targets):
+def accuracy(predictions, labels):
     """
     Computes the prediction accuracy, i.e. the average of correct predictions
     of the network.
@@ -55,40 +55,28 @@ def accuracy(predictions, targets):
     #######################
     # PUT YOUR CODE HERE  #
     #######################
-
+    preds = predictions.argmax(1)
+    accuracy = (preds == labels).sum() / preds.shape[0]
     #######################
     # END OF YOUR CODE    #
     #######################
-    
-    return accuracy
+
+    return accuracy.item()
 
 
-def evaluate_model(model, data_loader):
-    """
-    Performs the evaluation of the MLP model on a given dataset.
-
-    Args:
-      model: An instance of 'MLP', the model to evaluate.
-      data_loader: The data loader of the dataset to evaluate.
-    Returns:
-      avg_accuracy: scalar float, the average accuracy of the model on the dataset.
-
-    TODO:
-    Implement evaluation of the MLP model on a given dataset.
-
-    Hint: make sure to return the average accuracy of the whole dataset, 
-          independent of batch sizes (not all batches might be the same size).
-    """
-
-    #######################
-    # PUT YOUR CODE HERE  #
-    #######################
-
-    #######################
-    # END OF YOUR CODE    #
-    #######################
-    
-    return avg_accuracy
+def evaluate_model(model, loader):
+    acc = 0
+    cifar10_iter = iter(loader)
+    num_batches = 0
+    N = len(loader.dataset)
+    while data := next(cifar10_iter, None):
+        num_batches += 1
+        images, labels = data
+        input_data = images.reshape(
+            (images.shape[0], -1))
+        outputs = model(input_data)
+        acc += accuracy(outputs, labels) * (len(labels) / N)
+    return acc
 
 
 def train(hidden_dims, lr, use_batch_norm, batch_size, epochs, seed, data_dir):
@@ -141,37 +129,64 @@ def train(hidden_dims, lr, use_batch_norm, batch_size, epochs, seed, data_dir):
     cifar10_loader = cifar10_utils.get_dataloader(cifar10, batch_size=batch_size,
                                                   return_numpy=False)
 
-    #######################
-    # PUT YOUR CODE HERE  #
-    #######################
+    if hidden_dims:
+        dnn_hidden_units = [int(hidden_dims)
+                            for hidden_dims in hidden_dims]
+    else:
+        dnn_hidden_units = []
 
-    # TODO: Initialize model and loss module
-    model = ...
-    loss_module = ...
-    # TODO: Training loop including validation
-    # TODO: Do optimization with the simple SGD optimizer
-    val_accuracies = ...
-    # TODO: Test best model
-    test_accuracy = ...
-    # TODO: Add any information you might want to save for plotting
-    logging_info = ...
-    #######################
-    # END OF YOUR CODE    #
-    #######################
+    n_classes = 10
+    n_inputs = 3 * 32 * 32
 
+    model = nn.DataParallel(MLP(n_inputs, dnn_hidden_units, n_classes, use_batch_norm=use_batch_norm)).to(device)
+    best_model = None
+    loss_module = nn.CrossEntropyLoss()
+
+    train_accuracies = []
+    train_losses = []
+    val_accuracies = []
+    optimizer = torch.optim.SGD(model.parameters(), lr=lr)
+    model.train()
+    N = len(cifar10_loader['train'].dataset)
+    for step in range(epochs):
+        cifar10_train_iter = iter(cifar10_loader['train'])
+        t_loss = 0
+        t_accuracy = 0
+        while data := next(cifar10_train_iter, None):
+            images, labels = data
+            input_data = images.reshape((batch_size, -1))
+            outputs = model.forward(input_data)
+            loss = loss_module(outputs, labels)
+            t_loss += loss.item() * (len(labels) / N)
+            t_accuracy += accuracy(outputs, labels) * (len(labels) / N)
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+
+        train_losses.append(t_loss)
+        train_accuracies.append(t_accuracy)
+        val_acc = evaluate_model(model, cifar10_loader['validation'])
+        val_accuracies.append(val_acc)
+        if val_acc == max(val_accuracies): best_model = deepcopy(model)
+
+    test_accuracy = evaluate_model(best_model, cifar10_loader['test'])
+    logging_info = {'train_loss': train_losses, 'train_accuracy': train_accuracies, 'use_batch_norm': use_batch_norm}
+    np.save('mlp_train_accuracies_torch', train_accuracies)
+    np.save('mlp_train_losses_torch', train_losses)
+    np.save('mlp_validation_accuracy_torch', val_accuracies)
     return model, val_accuracies, test_accuracy, logging_info
 
 
 if __name__ == '__main__':
     # Command line arguments
     parser = argparse.ArgumentParser()
-    
+
     # Model hyperparameters
     parser.add_argument('--hidden_dims', default=[128], type=int, nargs='+',
                         help='Hidden dimensionalities to use inside the network. To specify multiple, use " " to separate them. Example: "256 128"')
     parser.add_argument('--use_batch_norm', action='store_true',
                         help='Use this option to add Batch Normalization layers to the MLP.')
-    
+
     # Optimizer hyperparameters
     parser.add_argument('--lr', default=0.1, type=float,
                         help='Learning rate to use')
@@ -191,4 +206,3 @@ if __name__ == '__main__':
 
     train(**kwargs)
     # Feel free to add any additional functions, such as plotting of the loss curve here
-    

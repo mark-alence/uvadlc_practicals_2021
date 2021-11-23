@@ -20,7 +20,7 @@ You should fill in code into indicated sections.
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
-
+from functools import reduce
 from modules import *
 
 
@@ -52,7 +52,15 @@ class MLP(object):
         #######################
         # PUT YOUR CODE HERE  #
         #######################
-        pass
+        dimensions = [n_inputs] + n_hidden + [n_classes]
+        self.layers = []
+        for i in range(len(dimensions) - 1):
+            input_size, output_size = dimensions[i], dimensions[i + 1]
+            self.layers.append(LinearModule(input_size, output_size))
+            if i < len(dimensions) - 2:
+                self.layers.append(ReLUModule())
+            else:
+                self.layers.append(SoftMaxModule())
         #######################
         # END OF YOUR CODE    #
         #######################
@@ -74,7 +82,7 @@ class MLP(object):
         #######################
         # PUT YOUR CODE HERE  #
         #######################
-
+        out = reduce(lambda res, f: f.forward(res), self.layers, x)
         #######################
         # END OF YOUR CODE    #
         #######################
@@ -95,7 +103,7 @@ class MLP(object):
         #######################
         # PUT YOUR CODE HERE  #
         #######################
-        pass
+        reduce(lambda res, f: f.backward(res), self.layers[::-1], dout)
         #######################
         # END OF YOUR CODE    #
         #######################
@@ -108,7 +116,7 @@ class MLP(object):
         TODO:
         Iterate over modules and call the 'clear_cache' function.
         """
-        
+
         #######################
         # PUT YOUR CODE HERE  #
         #######################

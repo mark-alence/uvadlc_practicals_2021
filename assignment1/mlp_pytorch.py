@@ -59,7 +59,20 @@ class MLP(nn.Module):
         #######################
         # PUT YOUR CODE HERE  #
         #######################
-        pass
+        super(MLP, self).__init__()
+
+        sizes = [n_inputs] + n_hidden + [n_classes]
+        layers = []
+        for i in range(len(sizes) - 1):
+            input_size, output_size = sizes[i], sizes[i + 1]
+            layer = nn.Linear(input_size, output_size)
+            nn.init.kaiming_normal_(layer.weight, nonlinearity='relu')
+            layers.append(layer)
+            if i < len(sizes) - 2:
+                if use_batch_norm: layers.append(nn.BatchNorm1d(output_size))
+                layers.append(nn.ReLU())
+
+        self.mlp = nn.Sequential(*layers)
         #######################
         # END OF YOUR CODE    #
         #######################
@@ -81,7 +94,7 @@ class MLP(nn.Module):
         #######################
         # PUT YOUR CODE HERE  #
         #######################
-
+        out = self.mlp(x)
         #######################
         # END OF YOUR CODE    #
         #######################
@@ -94,4 +107,3 @@ class MLP(nn.Module):
         Returns the device on which the model is. Can be useful in some situations.
         """
         return next(self.parameters()).device
-    
