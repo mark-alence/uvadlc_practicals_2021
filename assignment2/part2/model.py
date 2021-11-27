@@ -23,7 +23,8 @@ class LSTM(nn.Module):
     """
     Own implementation of LSTM cell.
     """
-    def __init__(self, lstm_hidden_dim, embedding_size):
+
+    def __init__(self, lstm_hidden_dim, embedding_size, device='cpu'):
         """
         Initialize all parameters of the LSTM class.
 
@@ -37,10 +38,31 @@ class LSTM(nn.Module):
         super(LSTM, self).__init__()
         self.hidden_dim = lstm_hidden_dim
         self.embed_dim = embedding_size
+        self.device = device
         #######################
         # PUT YOUR CODE HERE  #
         #######################
-        pass
+
+        # forget gate
+        self.W_fx = nn.Parameter(torch.Tensor(embedding_size, lstm_hidden_dim))
+        self.W_fh = nn.Parameter(torch.Tensor(lstm_hidden_dim, lstm_hidden_dim))
+        self.b_f = nn.Parameter(torch.Tensor(lstm_hidden_dim))
+
+        # input gate
+        self.W_ix = nn.Parameter(torch.Tensor(embedding_size, lstm_hidden_dim))
+        self.W_ih = nn.Parameter(torch.Tensor(lstm_hidden_dim, lstm_hidden_dim))
+        self.b_i = nn.Parameter(torch.Tensor(lstm_hidden_dim))
+
+        # input modulation gate
+        self.W_gx = nn.Parameter(torch.Tensor(embedding_size, lstm_hidden_dim))
+        self.W_gh = nn.Parameter(torch.Tensor(lstm_hidden_dim, lstm_hidden_dim))
+        self.b_g = nn.Parameter(torch.Tensor(lstm_hidden_dim))
+
+        # output gate
+        self.W_ox = nn.Parameter(torch.Tensor(embedding_size, lstm_hidden_dim))
+        self.W_oh = nn.Parameter(torch.Tensor(lstm_hidden_dim, lstm_hidden_dim))
+        self.b_o = nn.Parameter(torch.Tensor(lstm_hidden_dim))
+
         #######################
         # END OF YOUR CODE    #
         #######################
@@ -62,7 +84,10 @@ class LSTM(nn.Module):
         #######################
         # PUT YOUR CODE HERE  #
         #######################
-        pass
+        bound = 1 / math.sqrt(self.hidden_dim)
+        for wt in self.parameters():
+            wt.data.uniform_(-bound, bound)
+        self.b_f = nn.Parameter(self.b_f + 1)
         #######################
         # END OF YOUR CODE    #
         #######################
@@ -72,20 +97,33 @@ class LSTM(nn.Module):
         Forward pass of LSTM.
 
         Args:
-            embeds: embedded input sequence with shape [input length, batch size, hidden dimension].
+            embeds: embedded input sequence with shape [input length, batch size, embed dimension].
 
         TODO:
           Specify the LSTM calculations on the input sequence.
         Hint:
         The output needs to span all time steps, (not just the last one),
-        so the output shape is [input length, batch size, hidden dimension].
+        so the output shape is [input length, batch size, embed dimension].
         """
         #
         #
         #######################
         # PUT YOUR CODE HERE  #
         #######################
-        pass
+        input_length, batch_size, embed_dim = embeds.shape
+        h_t = torch.zeros(batch_size, self.hidden_dim).to(self.device)
+        c_t = torch.zeros(batch_size, self.hidden_dim).to(self.device)
+        h_arr = torch.zeros(input_length, batch_size, self.hidden_dim).to(self.device)
+        for t in range(input_length):
+            x_t = embeds[t]
+            g_t = torch.tanh(x_t @ self.W_gx + h_t @ self.W_gh + self.b_g).to(self.device)
+            i_t = torch.sigmoid(x_t @ self.W_ix + h_t @ self.W_ih + self.b_i).to(self.device)
+            f_t = torch.sigmoid(x_t @ self.W_fx + h_t @ self.W_fh + self.b_f).to(self.device)
+            o_t = torch.sigmoid(x_t @ self.W_ox + h_t @ self.W_oh + self.b_o).to(self.device)
+            c_t = g_t * i_t + c_t * f_t
+            h_t = torch.tanh(c_t) * o_t
+            h_arr[t] = h_t
+        return h_arr
         #######################
         # END OF YOUR CODE    #
         #######################
@@ -97,6 +135,7 @@ class TextGenerationModel(nn.Module):
     It should take care of the character embedding,
     and linearly maps the output of the LSTM to your vocabulary.
     """
+
     def __init__(self, args):
         """
         Initializing the components of the TextGenerationModel.
@@ -114,7 +153,12 @@ class TextGenerationModel(nn.Module):
         #######################
         # PUT YOUR CODE HERE  #
         #######################
-        pass
+        self.device = args.device
+        self.vocabulary_size = args.vocabulary_size
+        self.embedding = nn.Embedding(args.vocabulary_size, args.embedding_size).to(args.device)
+        self.lstm = LSTM(args.lstm_hidden_dim, args.embedding_size, device=args.device)
+        self.lstm = self.lstm.to(args.device)
+        self.linear = nn.Linear(args.lstm_hidden_dim, args.vocabulary_size).to(args.device)
         #######################
         # END OF YOUR CODE    #
         #######################
@@ -134,7 +178,11 @@ class TextGenerationModel(nn.Module):
         #######################
         # PUT YOUR CODE HERE  #
         #######################
-        pass
+        x = self.embedding(x)
+        out = self.lstm(x)
+        out = self.linear(out)
+        out = torch.softmax(out, dim=-1)
+        return out
         #######################
         # END OF YOUR CODE    #
         #######################

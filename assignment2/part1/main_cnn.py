@@ -21,7 +21,7 @@ import os
 import json
 import argparse
 import numpy as np
-
+from copy import deepcopy
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -64,13 +64,13 @@ def get_model(model_name, num_classes=10):
     """
     if model_name == 'debug':  # Use this model for debugging
         cnn_model = nn.Sequential(
-                nn.Flatten(),
-                nn.Linear(32*32*3, num_classes)
-            )
+            nn.Flatten(),
+            nn.Linear(32 * 32 * 3, num_classes)
+        )
     elif model_name == 'vgg11':
         cnn_model = models.vgg11(num_classes=num_classes)
     elif model_name == 'vgg11_bn':
-            cnn_model = models.vgg11_bn(num_classes=num_classes)
+        cnn_model = models.vgg11_bn(num_classes=num_classes)
     elif model_name == 'resnet18':
         cnn_model = models.resnet18(num_classes=num_classes)
     elif model_name == 'resnet34':
@@ -104,26 +104,54 @@ def train_model(model, lr, batch_size, epochs, data_dir, checkpoint_name, device
     #######################
     # PUT YOUR CODE HERE  #
     #######################
-    
+
     # Load the datasets
-    pass
+    train_set, val_set = get_train_validation_set(data_dir)
 
     # Initialize the optimizers and learning rate scheduler. 
     # We provide a recommend setup, which you are allowed to change if interested.
     optimizer = torch.optim.SGD(model.parameters(), lr=lr,
                                 momentum=0.9, weight_decay=5e-4)
     scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[90, 135], gamma=0.1)
-    
+
     # Training loop with validation after each epoch. Save the best model, and remember to use the lr scheduler.
-    pass
-    
+    train_loader = data.DataLoader(train_set, batch_size=batch_size, shuffle=True, drop_last=True, pin_memory=True,
+                                   num_workers=3)
+    val_loader = data.DataLoader(val_set, batch_size=batch_size, shuffle=True, drop_last=True, pin_memory=True,
+                                 num_workers=3)
+    loss_module = nn.CrossEntropyLoss()
+    val_scores = []
+    best_val_epoch = -1
+    best_model = None
+    for epoch in range(epochs):
+        model.train()
+        true_preds, count = 0., 0
+        for imgs, labels in train_loader:
+            imgs, labels = imgs.to(device), labels.to(device)
+            optimizer.zero_grad()
+            preds = model(imgs)
+            loss = loss_module(preds, labels)
+            loss.backward()
+            optimizer.step()
+            true_preds += (preds.argmax(dim=-1) == labels).sum()
+            count += labels.shape[0]
+        train_acc = true_preds / count
+        val_acc = evaluate_model(model, val_loader, device)
+        val_scores.append(val_acc)
+        print(
+            f"[Epoch {epoch + 1:2d}] Training accuracy: {train_acc * 100.0:05.2f}%, Validation accuracy: {val_acc * 100.0:05.2f}%")
+
+        if len(val_scores) == 1 or val_acc > val_scores[best_val_epoch]:
+            print("\t   (New best performance, saving model...)")
+            best_model = deepcopy(model)
+            torch.save(model.state_dict(), checkpoint_name)
+            best_val_epoch = epoch
     # Load best model and return it.
-    pass
-    
+    scheduler.step()
     #######################
     # END OF YOUR CODE    #
     #######################
-    return model
+    return best_model
 
 
 def evaluate_model(model, data_loader, device):
@@ -141,10 +169,19 @@ def evaluate_model(model, data_loader, device):
     Implement the evaluation of the model on the dataset.
     Remember to set the model in evaluation mode and back to training mode in the training loop.
     """
+
     #######################
     # PUT YOUR CODE HERE  #
     #######################
-    pass
+    model.eval()
+    true_preds, count = 0., 0
+    for imgs, labels in data_loader:
+        imgs, labels = imgs.to(device), labels.to(device)
+        with torch.no_grad():
+            preds = model(imgs).argmax(dim=-1)
+            true_preds += (preds == labels).sum().item()
+            count += labels.shape[0]
+    accuracy = true_preds / count
     #######################
     # END OF YOUR CODE    #
     #######################
@@ -167,7 +204,7 @@ def test_model(model, batch_size, data_dir, device, seed):
 
     TODO:
     Evaluate the model on the plain test set. Make use of the evaluate_model function.
-    For each corruption function and severity, repeat the test. 
+    For each corruption function and severity, repeat the test.
     Summarize the results in a dictionary (the structure inside the dict is up to you.)
     """
     #######################
@@ -175,7 +212,23 @@ def test_model(model, batch_size, data_dir, device, seed):
     #######################
     set_seed(seed)
     test_results = {}
-    pass
+    aug_strings = ['plain', 'gaussian_noise', 'gaussian_blur', 'contrast', 'jpeg']
+
+    augmentations = [None, gaussian_noise_transform, gaussian_blur_transform, contrast_transform,
+                     jpeg_transform]
+
+    for i in range(len(augmentations)):
+        for j in range(1, 6):
+            test_set = get_test_set(data_dir, None if augmentations[i] is None else augmentations[i](j))
+            test_loader = data.DataLoader(test_set, batch_size=batch_size, shuffle=True, drop_last=True,
+                                          pin_memory=True, num_workers=3)
+            acc = evaluate_model(model, test_loader, device)
+            if augmentations[i] is None:
+                test_results[f'{aug_strings[i]}'] = acc
+                break
+            if aug_strings[i] not in test_results:
+                test_results[f'{aug_strings[i]}'] = {}
+            test_results[f'{aug_strings[i]}'][f'{j}'] = acc
     #######################
     # END OF YOUR CODE    #
     #######################
@@ -207,13 +260,14 @@ def main(model_name, lr, batch_size, epochs, data_dir, seed):
     #######################
     device = torch.device("cuda:0") if torch.cuda.is_available() else torch.device("cpu")
     set_seed(seed)
-    pass
+    model = get_model(model_name).to(device)
+    best_model = train_model(model, lr, batch_size, epochs, data_dir, model_name, device=device)
+    test_results = test_model(best_model.to(device), batch_size, data_dir, device, seed)
+    with open(f'{model_name}.json', 'w', encoding='utf-8') as f:
+        json.dump(test_results, f, ensure_ascii=False, indent=4)
     #######################
     # END OF YOUR CODE    #
     #######################
-
-
-
 
 
 if __name__ == '__main__':
@@ -223,12 +277,15 @@ if __name__ == '__main__':
     Further, feel free to add any additional functions you might need, e.g. one for calculating the RCE and CE metrics.
     """
     # Command line arguments
+
+    # for model_name in ['vgg11', 'vgg11_bn', 'resnet34', 'densenet121']
+
     parser = argparse.ArgumentParser()
-    
+
     # Model hyperparameters
     parser.add_argument('--model_name', default='debug', type=str,
                         help='Name of the model to train.')
-    
+
     # Optimizer hyperparameters
     parser.add_argument('--lr', default=0.01, type=float,
                         help='Learning rate to use')
@@ -244,5 +301,7 @@ if __name__ == '__main__':
                         help='Data directory where to store/find the CIFAR10 dataset.')
 
     args = parser.parse_args()
-    kwargs = vars(args)
-    main(**kwargs)
+    for model_name in ['resnet18', 'vgg11', 'vgg11_bn', 'resnet34', 'densenet121']:
+        args.model_name = model_name
+        kwargs = vars(args)
+        main(**kwargs)

@@ -65,16 +65,37 @@ def train(args):
     # Load dataset
     # The data loader returns pairs of tensors (input, targets) where inputs are the
     # input characters, and targets the labels, i.e. the text shifted by one.
+    device = args.device
     dataset = TextDataset(args.txt_file, args.input_seq_length)
-    data_loader = DataLoader(dataset, args.batch_size, 
+    data_loader = DataLoader(dataset, args.batch_size,
                              shuffle=True, drop_last=True, pin_memory=True,
                              collate_fn=text_collate_fn)
-    # Create model
-    model = ...
-    # Create optimizer
-    optimizer = ...
-    # Training loop
-    pass
+    args.vocabulary_size = dataset.vocabulary_size
+    model = TextGenerationModel(args)
+    model = model.to(device)
+    model.train()
+    optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
+    loss_module = nn.CrossEntropyLoss()
+    for epoch in range(args.num_epochs):
+        true_preds, count = 0, 0
+        for x, y in data_loader:
+            x, y = x.to(device), y.to(device)
+            optimizer.zero_grad()
+            loss = 0
+            for t in range(args.input_seq_length):
+                preds = model(x[t])
+                loss += loss_module(preds, y[t])
+
+            # preds = model(x).reshape((args.batch_size, args.vocabulary_size, args.input_seq_length))
+            # loss = loss_module(preds, y.T)
+            loss /= args.input_seq_length
+            loss.backward()
+            optimizer.step()
+            true_preds += (preds.argmax(dim=1) == y.T).sum()
+            count += np.prod(y.shape)
+            print('tick', (preds.argmax(dim=1) == y.T).sum()/np.prod(y.shape))
+        train_acc = true_preds / count
+        print(f'TRAIN ACC AT EPOCH {epoch}: {train_acc}')
     #######################
     # END OF YOUR CODE    #
     #######################
@@ -84,7 +105,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()  # Parse training configuration
 
     # Model
-    parser.add_argument('--txt_file', type=str, required=True, help="Path to a .txt file to train on")
+    parser.add_argument('--txt_file', type=str, default='assets/book_EN_democracy_in_the_US.txt',
+                        help="Path to a .txt file to train on")
     parser.add_argument('--input_seq_length', type=int, default=30, help='Length of an input sequence')
     parser.add_argument('--lstm_hidden_dim', type=int, default=1024, help='Number of hidden units in the LSTM')
     parser.add_argument('--embedding_size', type=int, default=256, help='Dimensionality of the embeddings.')
