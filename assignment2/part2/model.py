@@ -17,6 +17,7 @@
 import math
 import torch
 import torch.nn as nn
+import numpy as np
 
 
 class LSTM(nn.Module):
@@ -123,7 +124,7 @@ class LSTM(nn.Module):
             c_t = g_t * i_t + c_t * f_t
             h_t = torch.tanh(c_t) * o_t
             h_arr[t] = h_t
-        return h_arr
+        return h_arr, h_t
         #######################
         # END OF YOUR CODE    #
         #######################
@@ -156,9 +157,14 @@ class TextGenerationModel(nn.Module):
         self.device = args.device
         self.vocabulary_size = args.vocabulary_size
         self.embedding = nn.Embedding(args.vocabulary_size, args.embedding_size).to(args.device)
-        self.lstm = LSTM(args.lstm_hidden_dim, args.embedding_size, device=args.device)
-        self.lstm = self.lstm.to(args.device)
+        # self.lstm = LSTM(args.lstm_hidden_dim, args.embedding_size, device=args.device)
+        # self.lstm = self.lstm.to(args.device)
+        self.lstm = nn.LSTM(args.embedding_size, args.lstm_hidden_dim, 1)
         self.linear = nn.Linear(args.lstm_hidden_dim, args.vocabulary_size).to(args.device)
+        self.b_l = nn.Parameter(torch.Tensor(args.vocabulary_size))
+        self.b_l.data.uniform_(0, 1)
+        self.softmax = nn.LogSoftmax(dim=-1)
+
         #######################
         # END OF YOUR CODE    #
         #######################
@@ -179,9 +185,9 @@ class TextGenerationModel(nn.Module):
         # PUT YOUR CODE HERE  #
         #######################
         x = self.embedding(x)
-        out = self.lstm(x)
-        out = self.linear(out)
-        out = torch.softmax(out, dim=-1)
+        out, hidden = self.lstm(x)
+        out = self.linear(out) + self.b_l
+        out = self.softmax(out)
         return out
         #######################
         # END OF YOUR CODE    #
@@ -204,7 +210,19 @@ class TextGenerationModel(nn.Module):
         #######################
         # PUT YOUR CODE HERE  #
         #######################
-        pass
+        out = torch.zeros((batch_size, sample_length))
+        m = nn.Softmax(dim=0)
+        for i in range(batch_size):
+            current = torch.Tensor(size=(1, 1))
+            current[0, 0] = np.random.randint(self.vocabulary_size)
+            sample = torch.zeros(size=(1, sample_length)).to(torch.int64)
+            sample[:, 0] = current[0, 0]
+            for j in range(1, sample_length):
+                current = self.forward(sample[:, 0:j])
+                sample[:, j] = np.random.choice(self.vocabulary_size,
+                                                p=m(current[0, j - 1] / temperature).detach().numpy())
+            out[i] = sample[0, :]
+        return out
         #######################
         # END OF YOUR CODE    #
         #######################

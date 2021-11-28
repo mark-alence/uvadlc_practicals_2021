@@ -81,21 +81,17 @@ def train(args):
         for x, y in data_loader:
             x, y = x.to(device), y.to(device)
             optimizer.zero_grad()
-            loss = 0
-            for t in range(args.input_seq_length):
-                preds = model(x[t])
-                loss += loss_module(preds, y[t])
-
-            # preds = model(x).reshape((args.batch_size, args.vocabulary_size, args.input_seq_length))
-            # loss = loss_module(preds, y.T)
-            loss /= args.input_seq_length
+            preds = model(x).permute((1, 2, 0))
+            loss = loss_module(preds, y.permute((1, 0)))
             loss.backward()
+            nn.utils.clip_grad_norm_(model.parameters(), args.clip_grad_norm)
             optimizer.step()
             true_preds += (preds.argmax(dim=1) == y.T).sum()
             count += np.prod(y.shape)
-            print('tick', (preds.argmax(dim=1) == y.T).sum()/np.prod(y.shape))
         train_acc = true_preds / count
-        print(f'TRAIN ACC AT EPOCH {epoch}: {train_acc}')
+        print(f'TRAIN ACC AT EPOCH {epoch + 1}: {train_acc}')
+        if epoch + 1 in [1,5, 10, 20]:
+            torch.save(model.state_dict(), f'model_epoch_{epoch + 1}')
     #######################
     # END OF YOUR CODE    #
     #######################
@@ -122,4 +118,17 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
     args.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")  # Use GPU if available, else use CPU
-    train(args)
+    # train(args)
+
+    dataset = TextDataset(args.txt_file, args.input_seq_length)
+    args.vocabulary_size = dataset.vocabulary_size+2
+    model = TextGenerationModel(args)
+    model.load_state_dict(torch.load('model_epoch_20', map_location=torch.device('cpu')))
+    # model.load_state_dict(torch.load('model_epoch_20'))
+
+    model.eval()
+
+    for t in [0.05, 1, 2]:
+        samples = model.sample(temperature=t)
+        for s in samples:
+            print([dataset._ix_to_char[int(i)] for i in s])
