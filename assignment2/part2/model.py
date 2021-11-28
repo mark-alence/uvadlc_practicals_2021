@@ -185,10 +185,10 @@ class TextGenerationModel(nn.Module):
         # PUT YOUR CODE HERE  #
         #######################
         x = self.embedding(x)
-        out, hidden = self.lstm(x)
-        out = self.linear(out) + self.b_l
-        out = self.softmax(out)
-        return out
+        hidden, out = self.lstm(x)
+        hidden = self.linear(hidden) + self.b_l
+        hidden = self.softmax(hidden)
+        return hidden
         #######################
         # END OF YOUR CODE    #
         #######################
@@ -211,17 +211,21 @@ class TextGenerationModel(nn.Module):
         # PUT YOUR CODE HERE  #
         #######################
         out = torch.zeros((batch_size, sample_length))
-        m = nn.Softmax(dim=0)
+        m = nn.Softmax(dim=-1)
+        char = 0
         for i in range(batch_size):
-            current = torch.Tensor(size=(1, 1))
-            current[0, 0] = np.random.randint(self.vocabulary_size)
-            sample = torch.zeros(size=(1, sample_length)).to(torch.int64)
-            sample[:, 0] = current[0, 0]
+            current = np.random.randint(self.vocabulary_size)
+            sample = torch.zeros(sample_length).to(torch.int64).to(self.device)
+            sample[0] = current
             for j in range(1, sample_length):
-                current = self.forward(sample[:, 0:j])
-                sample[:, j] = np.random.choice(self.vocabulary_size,
-                                                p=m(current[0, j - 1] / temperature).detach().numpy())
-            out[i] = sample[0, :]
+                current = self.forward(sample[None, 0:j].T)
+                if temperature:
+                    char = np.random.choice(self.vocabulary_size,
+                                     p=m(current[j - 1, 0] / temperature).detach().numpy())
+                else:
+                    char = current.argmax(dim=-1)[j - 1, 0]
+                sample[j] = char
+            out[i] = sample
         return out
         #######################
         # END OF YOUR CODE    #

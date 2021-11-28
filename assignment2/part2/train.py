@@ -90,7 +90,7 @@ def train(args):
             count += np.prod(y.shape)
         train_acc = true_preds / count
         print(f'TRAIN ACC AT EPOCH {epoch + 1}: {train_acc}')
-        if epoch + 1 in [1,5, 10, 20]:
+        if epoch + 1 in [1, 5, 10, 20]:
             torch.save(model.state_dict(), f'model_epoch_{epoch + 1}')
     #######################
     # END OF YOUR CODE    #
@@ -119,16 +119,20 @@ if __name__ == "__main__":
     args = parser.parse_args()
     args.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")  # Use GPU if available, else use CPU
     # train(args)
-
+    args.device = 'cpu'
     dataset = TextDataset(args.txt_file, args.input_seq_length)
-    args.vocabulary_size = dataset.vocabulary_size+2
-    model = TextGenerationModel(args)
+    args.vocabulary_size = dataset.vocabulary_size
+    model = TextGenerationModel(args).to(args.device)
     model.load_state_dict(torch.load('model_epoch_20', map_location=torch.device('cpu')))
     # model.load_state_dict(torch.load('model_epoch_20'))
 
     model.eval()
+    nl = dataset._char_to_ix['\n']
+    space = dataset._char_to_ix[' ']
 
-    for t in [0.05, 1, 2]:
+    for t in [0, 0.5, 1, 2]:
         samples = model.sample(temperature=t)
         for s in samples:
-            print([dataset._ix_to_char[int(i)] for i in s])
+            sentence = [dataset._ix_to_char[int(i)] for i in s]
+            sentence = [x if x != '\n' else ' ' for x in sentence]
+            print('Sentence:', ''.join(sentence))
