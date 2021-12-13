@@ -13,17 +13,16 @@
 # Author: Deep Learning Course | Fall 2021
 # Date Adapted: 2021-11-11
 ###############################################################################
-
+import sys
 from datetime import datetime
 import argparse
-from tqdm.auto import tqdm
 
 import torch
 import numpy as np
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader
-
+import copy
 from dataset import TextDataset, text_collate_fn
 from model import TextGenerationModel
 
@@ -76,22 +75,30 @@ def train(args):
     model.train()
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
     loss_module = nn.CrossEntropyLoss()
+    accuracies = []
+    losses = []
     for epoch in range(args.num_epochs):
         true_preds, count = 0, 0
+        l = 0
         for x, y in data_loader:
             x, y = x.to(device), y.to(device)
             optimizer.zero_grad()
             preds = model(x).permute((1, 2, 0))
             loss = loss_module(preds, y.permute((1, 0)))
+            l += loss.item()
             loss.backward()
             nn.utils.clip_grad_norm_(model.parameters(), args.clip_grad_norm)
             optimizer.step()
             true_preds += (preds.argmax(dim=1) == y.T).sum()
             count += np.prod(y.shape)
-        train_acc = true_preds / count
+        train_acc = true_preds.item() / count
+        accuracies.append(train_acc)
+        losses.append(l / count)
         print(f'TRAIN ACC AT EPOCH {epoch + 1}: {train_acc}')
         if epoch + 1 in [1, 5, 10, 20]:
-            torch.save(model.state_dict(), f'model_epoch_{epoch + 1}')
+            torch.save(model.state_dict(), f'model_epoch_{epoch + 1}_{args.text}')
+    np.save(f'accuracies_{args.text}', accuracies)
+    np.save(f'losses_{args.text}', losses)
     #######################
     # END OF YOUR CODE    #
     #######################
@@ -101,7 +108,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()  # Parse training configuration
 
     # Model
-    parser.add_argument('--txt_file', type=str, default='assets/book_EN_democracy_in_the_US.txt',
+    text = "book_EN_democracy_in_the_US"
+    parser.add_argument('--txt_file', type=str, default=f'assets/{text}.txt',
                         help="Path to a .txt file to train on")
     parser.add_argument('--input_seq_length', type=int, default=30, help='Length of an input sequence')
     parser.add_argument('--lstm_hidden_dim', type=int, default=1024, help='Number of hidden units in the LSTM')
@@ -110,29 +118,27 @@ if __name__ == "__main__":
     # Training
     parser.add_argument('--batch_size', type=int, default=128, help='Batch size to train with.')
     parser.add_argument('--lr', type=float, default=1e-3, help='Learning rate for the optimizer.')
-    parser.add_argument('--num_epochs', type=int, default=20, help='Number of epochs to train for.')
+    parser.add_argument('--num_epochs', type=int, default=35, help='Number of epochs to train for.')
     parser.add_argument('--clip_grad_norm', type=float, default=5.0, help='Gradient clipping norm')
-
     # Additional arguments. Feel free to add more arguments
     parser.add_argument('--seed', type=int, default=0, help='Seed for pseudo-random number generator')
-
     args = parser.parse_args()
     args.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")  # Use GPU if available, else use CPU
-    # train(args)
-    args.device = 'cpu'
+    args.text = text
+    train(args)
+
     dataset = TextDataset(args.txt_file, args.input_seq_length)
     args.vocabulary_size = dataset.vocabulary_size
-    model = TextGenerationModel(args).to(args.device)
-    model.load_state_dict(torch.load('model_epoch_20', map_location=torch.device('cpu')))
-    # model.load_state_dict(torch.load('model_epoch_20'))
-
-    model.eval()
     nl = dataset._char_to_ix['\n']
     space = dataset._char_to_ix[' ']
-
-    for t in [0, 0.5, 1, 2]:
-        samples = model.sample(temperature=t)
-        for s in samples:
-            sentence = [dataset._ix_to_char[int(i)] for i in s]
-            sentence = [x if x != '\n' else ' ' for x in sentence]
-            print('Sentence:', ''.join(sentence))
+    for m in [1]:
+        model = TextGenerationModel(args)
+        model.load_state_dict(torch.load(f'model_epoch_{m}_{text}', map_location=torch.device('cpu')))
+        model.eval()
+        for t in [0.5, 1, 2]:
+            samples = model.sample(temperature=t)
+            for s in samples:
+                sentence = [dataset._ix_to_char[int(i)] for i in s]
+                sentence = [x if x != '\n' else ' ' for x in sentence]
+                print(''.join(sentence))
+            print()

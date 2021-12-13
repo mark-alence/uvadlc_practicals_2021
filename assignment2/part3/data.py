@@ -1,4 +1,4 @@
-################################################################################
+ ################################################################################
 # MIT License
 #
 # Copyright (c) 2021 University of Amsterdam
@@ -55,7 +55,7 @@ def get_labels(molecules: Batch) -> torch.Tensor:
     return molecules.y[:, LABEL_INDEX]
 
 
-def get_qm9(data_dir: str, device="cpu") -> tuple[Dataset, Dataset, Dataset]:
+def get_qm9(data_dir: str, device="cpu") -> tuple([Dataset, Dataset, Dataset]):
     """Download the QM9 dataset from pytorch geometric. Put it onto the device. Split it up into train / validation / test.
 
     Args:

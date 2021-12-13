@@ -93,7 +93,7 @@ class LSTM(nn.Module):
         # END OF YOUR CODE    #
         #######################
 
-    def forward(self, embeds):
+    def forward(self, embeds, hidden=None):
         """
         Forward pass of LSTM.
 
@@ -115,7 +115,11 @@ class LSTM(nn.Module):
         h_t = torch.zeros(batch_size, self.hidden_dim).to(self.device)
         c_t = torch.zeros(batch_size, self.hidden_dim).to(self.device)
         h_arr = torch.zeros(input_length, batch_size, self.hidden_dim).to(self.device)
-        for t in range(input_length):
+        first = 0 if hidden is None else hidden.shape[0]
+        if hidden is not None and hidden.shape[0]:
+            h_arr[:-1] = hidden
+
+        for t in range(first, input_length):
             x_t = embeds[t]
             g_t = torch.tanh(x_t @ self.W_gx + h_t @ self.W_gh + self.b_g).to(self.device)
             i_t = torch.sigmoid(x_t @ self.W_ix + h_t @ self.W_ih + self.b_i).to(self.device)
@@ -157,19 +161,20 @@ class TextGenerationModel(nn.Module):
         self.device = args.device
         self.vocabulary_size = args.vocabulary_size
         self.embedding = nn.Embedding(args.vocabulary_size, args.embedding_size).to(args.device)
-        # self.lstm = LSTM(args.lstm_hidden_dim, args.embedding_size, device=args.device)
-        # self.lstm = self.lstm.to(args.device)
-        self.lstm = nn.LSTM(args.embedding_size, args.lstm_hidden_dim, 1)
-        self.linear = nn.Linear(args.lstm_hidden_dim, args.vocabulary_size).to(args.device)
+        self.lstm = LSTM(args.lstm_hidden_dim, args.embedding_size, device=args.device)
+        self.lstm = self.lstm.to(args.device)
+        bound = 1 / math.sqrt(args.lstm_hidden_dim)
+        self.linear = nn.Parameter(torch.Tensor(args.lstm_hidden_dim, args.vocabulary_size).to(args.device))
         self.b_l = nn.Parameter(torch.Tensor(args.vocabulary_size))
-        self.b_l.data.uniform_(0, 1)
+        self.linear.data.uniform_(-bound, bound)
+        self.b_l.data.uniform_(-bound, bound)
         self.softmax = nn.LogSoftmax(dim=-1)
 
         #######################
         # END OF YOUR CODE    #
         #######################
 
-    def forward(self, x):
+    def forward(self, x, hidden=None):
         """
         Forward pass.
 
@@ -185,15 +190,19 @@ class TextGenerationModel(nn.Module):
         # PUT YOUR CODE HERE  #
         #######################
         x = self.embedding(x)
-        hidden, out = self.lstm(x)
-        hidden = self.linear(hidden) + self.b_l
-        hidden = self.softmax(hidden)
-        return hidden
+        h_arr, h_t = self.lstm(x, hidden)
+        out = h_arr @ self.linear + self.b_l
+        out = self.softmax(out)
+        if hidden is None:
+            return out
+        else:
+            return h_arr, out
+
         #######################
         # END OF YOUR CODE    #
         #######################
 
-    def sample(self, batch_size=4, sample_length=30, temperature=0.):
+    def sample(self, batch_size=5, sample_length=30, temperature=0.):
         """
         Sampling from the text generation model.
 
@@ -217,11 +226,12 @@ class TextGenerationModel(nn.Module):
             current = np.random.randint(self.vocabulary_size)
             sample = torch.zeros(sample_length).to(torch.int64).to(self.device)
             sample[0] = current
+            hidden = np.array([])
             for j in range(1, sample_length):
-                current = self.forward(sample[None, 0:j].T)
+                hidden, current = self.forward(sample[None, 0:j].T, hidden)
                 if temperature:
                     char = np.random.choice(self.vocabulary_size,
-                                     p=m(current[j - 1, 0] / temperature).detach().numpy())
+                                            p=m(current[j - 1, 0] / temperature).cpu().detach().numpy())
                 else:
                     char = current.argmax(dim=-1)[j - 1, 0]
                 sample[j] = char

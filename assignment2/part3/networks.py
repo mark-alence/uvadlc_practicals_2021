@@ -46,7 +46,19 @@ class MLP(nn.Module):
         #######################
         # PUT YOUR CODE HERE  #
         #######################
-        pass
+        super().__init__()
+        layers = []
+        in_channels, out_channels = n_inputs, iter(n_hidden)
+        n_out = 0
+        for l_idx in range(len(n_hidden) - 1):
+            n_out = next(out_channels)
+            layers += [
+                nn.Linear(in_channels, n_out),
+                nn.ReLU(inplace=True),
+            ]
+            in_channels = n_out
+        layers += [nn.Linear(in_channels, n_outputs)]
+        self.layers = nn.Sequential(*layers)
         #######################
         # END OF YOUR CODE    #
         #######################
@@ -65,7 +77,7 @@ class MLP(nn.Module):
         #######################
         # PUT YOUR CODE HERE  #
         #######################
-        pass
+        out = self.layers(x)
         #######################
         # END OF YOUR CODE    #
         #######################
@@ -84,12 +96,12 @@ class GNN(nn.Module):
     """
 
     def __init__(
-        self,
-        n_node_features: int,
-        n_edge_features: int,
-        n_hidden: int,
-        n_output: int,
-        num_convolution_blocks: int,
+            self,
+            n_node_features: int,
+            n_edge_features: int,
+            n_hidden: int,
+            n_output: int,
+            num_convolution_blocks: int,
     ) -> None:
         """create the gnn
 
@@ -108,17 +120,30 @@ class GNN(nn.Module):
         #######################
         # PUT YOUR CODE HERE  #
         #######################
-        pass
+        super().__init__()
+
+        self.n_output = n_output
+
+        self.embedding = nn.Embedding(n_node_features, n_hidden)
+        layers = []
+        for i in range(num_convolution_blocks):
+            layers += [nn.ReLU(inplace=True), geom_nn.RGCNConv(n_hidden, n_hidden, n_edge_features),
+                       nn.ReLU(inplace=True),
+                       geom_nn.MFConv(n_hidden, n_hidden)]
+        self.layers = nn.Sequential(*layers)
+        self.projection = nn.Sequential(
+            *[nn.Linear(n_hidden, n_hidden), nn.ReLU(inplace=True), nn.Linear(n_hidden, n_output)])
+
         #######################
         # END OF YOUR CODE    #
         #######################
 
     def forward(
-        self,
-        x: torch.Tensor,
-        edge_index: torch.Tensor,
-        edge_attr: torch.Tensor,
-        batch_idx: torch.Tensor,
+            self,
+            x: torch.Tensor,
+            edge_index: torch.Tensor,
+            edge_attr: torch.Tensor,
+            batch_idx: torch.Tensor,
     ) -> torch.Tensor:
         """
         Args:
@@ -138,7 +163,17 @@ class GNN(nn.Module):
         #######################
         # PUT YOUR CODE HERE  #
         #######################
-        
+        out = self.embedding(torch.argmax(x, axis=1))
+        for l in self.layers:
+            if isinstance(l, geom_nn.MessagePassing):
+                if l._get_name() == 'RGCNConv':
+                    out = l(out, edge_index, edge_attr)
+                else:
+                    out = l(out, edge_index)
+            else:
+                out = l(out)
+        out = geom_nn.global_add_pool(out, batch_idx)
+        out = self.projection(out)
         #######################
         # END OF YOUR CODE    #
         #######################

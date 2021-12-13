@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="WebServers">
+    <option name="servers">
+      <webServer id="eba809df-9c36-4577-a80e-706fe78df57d" name="Wits">
+        <fileTransfer rootFolder="/home-mscluster/malence" accessType="SFTP" host="146.141.21.100" port="22" sshConfigId="20b7e827-f014-4d34-8323-0ddae5d0203f" sshConfig="malence@146.141.21.100:22 password">
+          <advancedOptions>
+            <advancedOptions dataProtectionLevel="Private" keepAliveTimeout="0" passiveMode="true" shareSSLContext="true" />
+          </advancedOptions>
+        </fileTransfer>
+      </webServer>
+    </option>
+  </component>
+</project>
